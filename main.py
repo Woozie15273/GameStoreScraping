@@ -29,14 +29,15 @@ async def _process_query(scraper: Scraper, params: SearchParams):
 
 async def main():
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s"
     )
 
     queries = Config.QUERIES
 
     async with Scraper(
-        headless=False,
+        # Force the headful mode as the website does not fully hydrate product cards in headless mode
+        headless=False, 
         max_concurrency=Config.MAX_CONCURRENCY
     ) as scraper:
 
