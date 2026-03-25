@@ -2,6 +2,7 @@ import asyncio
 from playwright.async_api import async_playwright, Playwright, Browser, Page, Locator
 from schemas import SearchParams, GameEntry, Selectors
 from config import Config
+import logging
 
 class Scraper:
     def __init__(self, headless: bool = True, max_concurrency: int = 1):
@@ -11,37 +12,52 @@ class Scraper:
         self._browser: Browser | None = None
 
     async def __aenter__(self):
+        logging.debug("Starting Playwright...")
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(headless=self.headless)
+        logging.debug("Launching browser (headless=%s)...", self.headless)
+        self._browser = await self._playwright.chromium.launch(
+            headless=self.headless
+        )
+        logging.info("Browser launched successfully.")
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
+        logging.debug("Closing browser and Playwright...")
         if self._browser:
             await self._browser.close()
+            logging.debug("Browser closed.")
         if self._playwright:
             await self._playwright.stop()
+            logging.debug("Playwright stopped.")
 
     async def run(self, params: SearchParams) -> list[GameEntry]:
         async with self.semaphore:
             context = await self._browser.new_context()
             page = await context.new_page()
+            logging.debug("Navigating to base URL: %s", Config.BASE_URL)
             await page.goto(Config.BASE_URL)
             entries = await self._search_and_scrape(page, params)
+            logging.info("Scraped %d entries.", len(entries))
             await context.close()
+            logging.debug("Context closed.")
             return entries
 
     async def _search_and_scrape(self, page: Page, params: SearchParams) -> list[GameEntry]:
+        logging.debug("Starting scrape loop with params: %s", params)
         results: list[GameEntry] = []
 
         if params.platform:
+            logging.debug("Filtering by platform: %s", params.platform)
             await self._goto_filtered_platform(page, params.platform)
         if params.name:
+            logging.debug("Searching by name: %s", params.name)
             await self._search_by_name(page, params.name)
 
         while True:
             cards = page.locator(Selectors.product_card_selector)
             await cards.first.wait_for()
             count = await cards.count()
+            logging.debug("Found %d product cards on page.", count)
 
             for i in range(count):
                 try:
@@ -49,25 +65,30 @@ class Scraper:
                     if self._matches_criteria(entry, params):
                         if params.platform: entry.platform = params.platform
                         results.append(entry)
-                except Exception:
+                except Exception as e:
+                    logging.debug("Failed to parse card %d: %s", i, e)
                     continue
 
             next_btn = page.locator(Selectors.next_page_selector)
             is_disabled = "disabled" in (await next_btn.get_attribute("class") or "")
             if await next_btn.count() == 0 or is_disabled:
+                logging.debug("No next page available. Ending pagination.")
                 break
             
+            logging.debug("Navigating to next page...")
             current_url = page.url
             await next_btn.click()
             await page.wait_for_function(
                 "url => window.location.href !== url",
                 arg=current_url
             )
-            
+        
+        logging.info("Scraping complete. Total entries matched: %d", len(results))
         return results
 
     # --- Navigation Helpers ---
     async def _search_by_name(self, page: Page, name: str):
+        logging.debug("Typing search query: %s", name)
         await page.locator(Selectors.search_input_selector).type(name)
         await page.locator(Selectors.exec_search_selector).click()
         await page.wait_for_load_state("networkidle")
@@ -76,6 +97,7 @@ class Scraper:
         # Find all collapsible triggers
         triggers = page.locator(Selectors.collapsable_selector)
         count = await triggers.count()
+        logging.debug("Expanding %d platform collapsibles.", count)
 
         for i in range(count):
             trigger = triggers.nth(i)
@@ -95,6 +117,7 @@ class Scraper:
 
 
     async def _goto_filtered_platform(self, page: Page, platform: str):
+        logging.debug("Navigating to platform filter: %s", platform)
         await self._expand_platform_collapsibles(page)
         await page.locator(Selectors.filter_wrapper_selector).get_by_text(platform, exact=True).click()
         await page.wait_for_load_state("networkidle")

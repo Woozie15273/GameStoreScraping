@@ -19,7 +19,7 @@ class Platforms():
     XBOX_X = 'xbox-series-x'
     
     # SEGA
-    DREAMCAST = "dreamcast"
+    DREAMCAST = "Dreamcast"
     
     # PlayStation
     PS1 = "playstation-1"
@@ -31,6 +31,6 @@ class Platforms():
     PSP = "psp"
     
     # Others
-    PC = "pc"
-    STADIA = "stadia"
+    PC = "Pc"
+    STADIA = "Stadia"
     ALL = "all"
